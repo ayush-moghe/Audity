@@ -411,3 +411,29 @@ async def delete_audio(id: int) -> dict[str, object]:
         "file_path": file_path,
         "storage_error": storage_error,
     }
+
+@app.patch("/toggle-public/{id}")
+async def toggle_public(id: int) -> dict[str, object]:
+    # 1. Fetch the row to get the current 'public' status
+    fetch_url = f"{SUPABASE_URL}/rest/v1/Audios?id=eq.{id}&select=public"
+    row_data = make_supabase_request(fetch_url, "GET")
+
+    rows = json.loads(row_data)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Audio with id {id} not found.")
+
+    # Get current status, default to False if null
+    current_status = rows[0].get("public") or False
+    new_status = not current_status
+
+    # 2. Update the 'public' column with the new status
+    update_url = f"{SUPABASE_URL}/rest/v1/Audios?id=eq.{id}"
+    update_body = json.dumps({"public": new_status}).encode("utf-8")
+    
+    make_supabase_request(update_url, "PATCH", body=update_body)
+
+    return {
+        "message": f"Successfully toggled public status for audio {id}.",
+        "id": id,
+        "public": new_status
+    }

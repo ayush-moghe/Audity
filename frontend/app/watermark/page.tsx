@@ -298,8 +298,7 @@ export default function StampPage() {
         <section className="w-full rounded-2xl border border-fuchsia-300/20 bg-[linear-gradient(150deg,rgb(14,9,38),rgb(42,11,74)_45%,rgb(15,45,114))] p-6 shadow-[0_15px_50px_rgba(145,82,255,0.18)]">
           <h1 className="text-4xl font-bold text-white">Watermark Audio</h1>
           <p className="mt-3 max-w-3xl text-base text-slate-200">
-            Upload audio to your FastAPI AudioSeal route. On success, this page writes a
-            new row into Audios so Dashboard and Library can show it.
+            Upload audio to watermark it using AudioSeal, and optionally score MOS quality before and after watermarking. Watermarked audios are saved to your dashboard and can be made public in the Library.
           </p>
 
           <form className="mt-9 space-y-7" onSubmit={handleSubmit}>

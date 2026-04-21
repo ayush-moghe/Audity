@@ -12,6 +12,7 @@ type AudioRow = {
   file_path: string;
   mos: number | null;
   created_at: string;
+  public: boolean; // Added public boolean
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -67,7 +68,8 @@ export default function DashboardPage() {
 
       const { data, error } = await supabase
         .from("Audios")
-        .select("id,name,file_path,mos,created_at")
+        // Added 'public' to the select string
+        .select("id,name,file_path,mos,created_at,public")
         .eq("user_id", appUser.id)
         .order("created_at", { ascending: false });
 
@@ -139,6 +141,35 @@ export default function DashboardPage() {
       window.URL.revokeObjectURL(blobUrl);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to download audio.");
+    }
+  };
+
+  // New handler for toggling public status
+  const handleTogglePublic = async (id: number, currentStatus: boolean) => {
+    // Optimistic UI update
+    setAudios((prev) =>
+      prev.map((audio) =>
+        audio.id === id ? { ...audio, public: !currentStatus } : audio
+      )
+    );
+
+    try {
+      const response = await fetch(`${API_BASE}/toggle-public/${id}`, {
+        method: "PATCH",
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body?.detail ?? "Failed to toggle status");
+      }
+    } catch (error) {
+      // Revert if API fails
+      setAudios((prev) =>
+        prev.map((audio) =>
+          audio.id === id ? { ...audio, public: currentStatus } : audio
+        )
+      );
+      setErrorMessage(error instanceof Error ? error.message : "Unable to update public status.");
     }
   };
 
@@ -273,8 +304,15 @@ export default function DashboardPage() {
                     className="rounded-2xl border border-cyan-300/20 bg-[#071227] px-5 py-5 shadow-[inset_0_1px_0_rgba(120,200,255,0.15)]"
                   >
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                      <div className="min-w-0">
-                        <h2 className="truncate text-2xl font-semibold text-cyan-100">{audio.name}</h2>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3">
+                           <h2 className="truncate text-2xl font-semibold text-cyan-100">{audio.name}</h2>
+                           {audio.public && (
+                             <span className="rounded-md bg-cyan-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                               Public
+                             </span>
+                           )}
+                        </div>
                         <p className="mt-1 text-sm text-slate-300">
                           {new Date(audio.created_at).toLocaleString()}
                         </p>
@@ -282,7 +320,7 @@ export default function DashboardPage() {
 
                       {hasMos ? (
                         <>
-                          <div className="w-full lg:max-w-2xl">
+                          <div className="w-full lg:max-w-xl xl:max-w-2xl">
                             <div className="h-3 rounded-full bg-cyan-950/80">
                               <div
                                 className="h-3 rounded-full"
@@ -302,7 +340,31 @@ export default function DashboardPage() {
                         </>
                       ) : null}
 
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-3 ml-auto">
+                        {/* Toggle Public button */}
+                        <button
+                          type="button"
+                          onClick={() => void handleTogglePublic(audio.id, audio.public)}
+                          title={audio.public ? "Make Private" : "Make Public"}
+                          className={`flex h-12 w-12 items-center justify-center rounded-full border transition ${
+                            audio.public 
+                              ? "border-cyan-300/60 bg-cyan-300/20 text-white hover:bg-cyan-300/30" 
+                              : "border-slate-500/60 bg-transparent text-slate-400 hover:border-cyan-100/80 hover:text-cyan-100"
+                          }`}
+                        >
+                          {audio.public ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                              <line x1="1" y1="1" x2="23" y2="23" />
+                            </svg>
+                          )}
+                        </button>
+
                         {/* Download icon button */}
                         <button
                           type="button"
