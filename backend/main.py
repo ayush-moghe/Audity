@@ -356,3 +356,48 @@ async def detect_audio(file: UploadFile = File(...)) -> dict[str, object]:
         "filename": file.filename,
         "message": "Detection completed.",
     }
+
+@app.delete("/delete/{id}")
+async def delete_audio(id: int) -> dict[str, str]:
+    ssl_context = ssl.create_default_context(cafile=CA_BUNDLE_PATH)
+
+    def make_request(url: str, method: str, body: bytes | None = None) -> bytes:
+        req = urllib.request.Request(url, data=body, method=method)
+        req.add_header("apikey", SUPABASE_SERVICE_ROLE_KEY)
+        if is_jwt_token(SUPABASE_SERVICE_ROLE_KEY):
+            req.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_ROLE_KEY}")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30, context=ssl_context) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="ignore")
+            raise HTTPException(status_code=502, detail=f"Supabase request failed with HTTP {exc.code}: {error_body or exc.reason}") from exc
+        except urllib.error.URLError as exc:
+            raise HTTPException(status_code=502, detail=f"Supabase request failed: {exc.reason}") from exc
+
+    # 1. Fetch the row to get file_path
+    row_url = f"{SUPABASE_URL}/rest/v1/Audios?id=eq.{id}&select=file_path"
+    row_data = make_request(row_url, "GET")
+
+    import json
+    rows = json.loads(row_data)
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"Audio with id {id} not found.")
+
+    file_path = rows[0].get("file_path")
+
+    # 2. Delete file from storage
+    if file_path:
+        storage_url = (
+            f"{SUPABASE_URL}/storage/v1/object/"
+            f"{quote(SUPABASE_AUDIO_BUCKET, safe='')}/{quote(file_path, safe='/')}"
+        )
+        make_request(storage_url, "DELETE")
+
+    # 3. Delete the row from the table
+    delete_url = f"{SUPABASE_URL}/rest/v1/Audios?id=eq.{id}"
+    make_request(delete_url, "DELETE")
+
+    return {"message": f"Audio {id} and its file deleted successfully."}
+ 
