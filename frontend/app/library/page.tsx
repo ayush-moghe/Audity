@@ -61,12 +61,58 @@ export default function LibraryPage() {
     return data.publicUrl;
   };
 
+  const handleDownload = async (filePath: string, audioName: string) => {
+    try {
+      const downloadUrl = getDownloadUrl(filePath);
+      if (!downloadUrl || downloadUrl === "#") {
+        throw new Error("Unable to resolve download URL.");
+      }
+
+      const response = await fetch(downloadUrl, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Download failed.");
+      }
+
+      const blob = await response.blob();
+      const extension = filePath.includes(".") ? filePath.split(".").pop() : "mp3";
+      const safeName = audioName.trim().replace(/\s+/g, "_");
+      const fileName = `${safeName || "audio"}.${extension || "mp3"}`;
+
+      const blobUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to download audio.");
+    }
+  };
+
+  const scoreLabel = (mos: number | null) => {
+    if (typeof mos !== "number") {
+      return "Not scored";
+    }
+    if (mos >= 4.0) {
+      return "Excellent";
+    }
+    if (mos >= 3.2) {
+      return "Good";
+    }
+    if (mos >= 2.4) {
+      return "Fair";
+    }
+    return "Needs review";
+  };
+
   return (
     <AuthGuard>
       <main className="mx-auto flex w-full max-w-7xl flex-1 px-6 py-10">
-        <section className="w-full rounded-2xl border border-blue-300/20 bg-[linear-gradient(150deg,rgb(8,12,34),rgb(20,17,72)_45%,rgb(6,45,108))] p-6 shadow-[0_15px_50px_rgba(56,111,255,0.18)]">
-          <h1 className="text-3xl font-bold text-white">Public Library</h1>
-          <p className="mt-3 max-w-3xl text-slate-200">
+        <section className="w-full rounded-3xl border border-blue-300/20 bg-[linear-gradient(150deg,#071127,#17124e_46%,#073987)] p-8 shadow-[0_20px_70px_rgba(56,111,255,0.18)]">
+          <h1 className="text-4xl font-bold text-white">Public Library</h1>
+          <p className="mt-3 max-w-3xl text-base text-slate-200">
             Download public watermarked audios shared by creators.
           </p>
 
@@ -97,28 +143,57 @@ export default function LibraryPage() {
           ) : null}
 
           {!loading && !errorMessage && filteredAudios.length > 0 ? (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              {filteredAudios.map((audio) => (
-                <article
-                  key={audio.id}
-                  className="rounded-xl border border-cyan-300/20 bg-[#070d1e] p-4"
-                >
-                  <h2 className="text-lg font-semibold text-cyan-100">{audio.name}</h2>
-                  <p className="mt-1 text-sm text-slate-300">MOS: {audio.mos ?? "-"}</p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    Uploaded: {new Date(audio.created_at).toLocaleString()}
-                  </p>
-                  <a
-                    href={getDownloadUrl(audio.file_path)}
-                    className="mt-4 inline-flex rounded-full border border-cyan-300/60 bg-cyan-300/12 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-100/80 hover:text-white"
-                    download
-                    target="_blank"
-                    rel="noreferrer"
+            <div className="mt-6 space-y-4">
+              {filteredAudios.map((audio) => {
+                const hasMos = typeof audio.mos === "number";
+                const normalizedScore = hasMos ? Math.max(0, Math.min(5, audio.mos)) : 0;
+                const widthPct = (normalizedScore / 5) * 100;
+
+                return (
+                  <article
+                    key={audio.id}
+                    className="rounded-2xl border border-cyan-300/20 bg-[#061128] px-6 py-6"
                   >
-                    Download
-                  </a>
-                </article>
-              ))}
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="min-w-0">
+                        <h2 className="truncate text-2xl font-semibold text-cyan-100">{audio.name}</h2>
+                        <p className="mt-1 text-sm text-slate-300">
+                          Uploaded: {new Date(audio.created_at).toLocaleString()}
+                        </p>
+                      </div>
+
+                      {hasMos ? (
+                        <div className="w-full lg:max-w-2xl">
+                          <div className="h-3 rounded-full bg-cyan-950/75">
+                            <div
+                              className="h-3 rounded-full bg-[linear-gradient(90deg,#68f0ff,#3f89ff)]"
+                              style={{ width: `${widthPct}%` }}
+                            />
+                          </div>
+                          <p className="mt-2 text-sm text-cyan-100">{scoreLabel(audio.mos)}</p>
+                        </div>
+                      ) : null}
+
+                      <div className="flex items-center gap-4">
+                        {hasMos ? (
+                          <div className="rounded-xl border border-cyan-300/35 bg-cyan-300/10 px-4 py-2 text-right">
+                            <p className="text-xs uppercase tracking-[0.13em] text-cyan-200">MOS</p>
+                            <p className="text-2xl font-bold text-white">{audio.mos?.toFixed(2) ?? "-"}</p>
+                          </div>
+                        ) : null}
+
+                        <button
+                          type="button"
+                          onClick={() => void handleDownload(audio.file_path, audio.name)}
+                          className="inline-flex rounded-full border border-cyan-300/60 bg-cyan-300/12 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:border-cyan-100/80 hover:text-white"
+                        >
+                          Download
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : null}
         </section>

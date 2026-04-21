@@ -25,12 +25,6 @@ export default function Home() {
             >
               Launch Audity
             </a>
-            <a
-              href="#"
-              className="rounded-full border border-fuchsia-300/40 bg-fuchsia-400/10 px-6 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-fuchsia-200 transition hover:bg-fuchsia-400/20"
-            >
-              Watch Demo
-            </a>
           </div>
         </div>
         <SynthwaveWave />

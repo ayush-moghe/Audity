@@ -17,7 +17,7 @@ type NavLink = {
 
 const protectedLinks: NavLink[] = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/stamp", label: "Watermark" },
+  { href: "/watermark", label: "Watermark" },
   { href: "/detect", label: "Detect" },
   { href: "/library", label: "Library" },
 ];
