@@ -17,7 +17,7 @@ type NavLink = {
 
 const protectedLinks: NavLink[] = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/stamp", label: "Stamp" },
+  { href: "/stamp", label: "Watermark" },
   { href: "/detect", label: "Detect" },
   { href: "/library", label: "Library" },
 ];
@@ -37,22 +37,22 @@ export default function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-cyan-400/25 bg-[linear-gradient(110deg,rgba(74,8,122,0.82),rgba(18,34,102,0.88)_48%,rgba(8,149,255,0.68))] shadow-[0_10px_40px_rgba(55,120,255,0.24)] backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b-2 border-blue-400/60 bg-[linear-gradient(110deg,rgba(74,8,122,0.82),rgba(18,34,102,0.88)_48%,rgba(8,149,255,0.68))] shadow-[0_10px_40px_rgba(55,120,255,0.24)] backdrop-blur-md">
       <nav className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link
           href="/"
-          className={`${logoFont.className} text-4xl text-cyan-300 drop-shadow-[0_0_10px_rgba(72,193,255,0.98)] sm:text-5xl`}
+          className={`${logoFont.className} inline-flex items-center leading-none text-2xl text-cyan-300 drop-shadow-[0_0_10px_rgba(72,193,255,0.98)] sm:text-3xl lg:text-4xl`}
         >
           Audity
         </Link>
 
-        <div className="hidden items-center gap-7 md:flex">
+        <div className="hidden items-center gap-10 lg:gap-12 md:flex">
           {isAuthenticated &&
             protectedLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm font-semibold tracking-wide text-blue-100 transition hover:text-cyan-300"
+                className="rounded-full border border-cyan-300/25 bg-cyan-300/8 px-4 py-2.5 text-base font-semibold tracking-[0.08em] text-cyan-100 shadow-[0_0_14px_rgba(33,145,255,0.2)] transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-200/80 hover:bg-cyan-300/20 hover:text-white hover:shadow-[0_0_20px_rgba(110,216,255,0.45)]"
               >
                 {link.label}
               </Link>
