@@ -14,12 +14,16 @@ type AudioRow = {
   created_at: string;
 };
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const supabase = getSupabaseBrowserClient();
   const [audios, setAudios] = useState<AudioRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     const loadMyAudios = async () => {
@@ -82,9 +86,7 @@ export default function DashboardPage() {
 
   const averageMos = useMemo(() => {
     const scoredAudios = audios.filter((audio) => typeof audio.mos === "number");
-    if (scoredAudios.length === 0) {
-      return null;
-    }
+    if (scoredAudios.length === 0) return null;
     const total = scoredAudios.reduce((sum, audio) => sum + (audio.mos ?? 0), 0);
     return Number((total / scoredAudios.length).toFixed(2));
   }, [audios]);
@@ -117,17 +119,15 @@ export default function DashboardPage() {
   const handleDownload = async (filePath: string, audioName: string) => {
     try {
       const downloadUrl = getDownloadUrl(filePath);
-      if (!downloadUrl || downloadUrl === "#") {
-        throw new Error("Unable to resolve download URL.");
-      }
+      if (!downloadUrl || downloadUrl === "#") throw new Error("Unable to resolve download URL.");
 
       const response = await fetch(downloadUrl, { cache: "no-store" });
       if (!response.ok) throw new Error("Download failed.");
 
       const blob = await response.blob();
-      const extension = filePath.includes(".") ? filePath.split(".").pop() : "mp3";
+      const extension = filePath.includes(".") ? filePath.split(".").pop() : "wav";
       const safeName = audioName.trim().replace(/\s+/g, "_");
-      const fileName = `${safeName || "audio"}.${extension || "mp3"}`;
+      const fileName = `${safeName || "audio"}.${extension || "wav"}`;
 
       const blobUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -142,8 +142,65 @@ export default function DashboardPage() {
     }
   };
 
+  const handleDeleteConfirmed = async () => {
+    if (confirmDeleteId === null) return;
+    setDeleting(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(`${API_BASE}/delete/${confirmDeleteId}`, {
+        method: "DELETE",
+      });
+
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(body?.detail ?? `Delete failed with status ${response.status}`);
+      }
+
+      setAudios((prev) => prev.filter((a) => a.id !== confirmDeleteId));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to delete audio.");
+    } finally {
+      setDeleting(false);
+      setConfirmDeleteId(null);
+    }
+  };
+  const audioToDelete = audios.find((a) => a.id === confirmDeleteId);
+
   return (
     <AuthGuard>
+      {confirmDeleteId !== null ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-red-400/30 bg-[#0d1a2e] p-6 shadow-[0_20px_60px_rgba(255,60,60,0.2)]">
+            <h2 className="text-lg font-bold text-white">Delete Audio</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Are you sure you want to delete{" "}
+              <span className="font-semibold text-cyan-200">{audioToDelete?.name}</span>?
+              This action cannot be undone.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={deleting}
+                className="flex-1 rounded-full border border-cyan-300/40 bg-transparent px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-100/80 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteConfirmed()}
+                disabled={deleting}
+                className="flex-1 rounded-full border border-red-400/60 bg-red-600/80 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <main className="mx-auto flex w-full max-w-7xl flex-1 px-6 py-10">
         <section className="w-full rounded-3xl border border-cyan-300/20 bg-[linear-gradient(145deg,#050b22,#110f3f_52%,#0a347f)] p-8 shadow-[0_20px_70px_rgba(36,102,255,0.2)]">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -155,8 +212,8 @@ export default function DashboardPage() {
             </div>
 
             <Link
-              href="/stamp"
-              className="inline-flex items-center gap-2 rounded-full border border-cyan-300/70 bg-[linear-gradient(100deg,rgba(11,8,39,0.95),rgba(36,12,84,0.96)_42%,rgba(10,75,198,0.96))] px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-cyan-100 shadow-[0_0_24px_rgba(67,160,255,0.4)] transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-100/90 hover:text-white hover:shadow-[0_0_30px_rgba(112,220,255,0.58)]"
+              href="/watermark"
+              className="inline-flex items-center gap-4 rounded-full border border-cyan-300/70 bg-[linear-gradient(100deg,rgba(11,8,39,0.95),rgba(36,12,84,0.96)_42%,rgba(10,75,198,0.96))] px-6 py-3 text-sm font-bold uppercase tracking-[0.14em] text-cyan-100 shadow-[0_0_24px_rgba(67,160,255,0.4)] transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-100/90 hover:text-white hover:shadow-[0_0_30px_rgba(112,220,255,0.58)]"
             >
               <span className="text-lg leading-none">+</span>
               <span>Watermark Audio</span>
@@ -194,7 +251,7 @@ export default function DashboardPage() {
             <div className="mt-6 rounded-xl border border-cyan-300/20 bg-[#0a1530] px-5 py-5">
               <p className="text-sm text-cyan-100">No watermarked audios found yet.</p>
               <Link
-                href="/stamp"
+                href="/watermark"
                 className="mt-4 inline-flex items-center gap-2 rounded-full border border-cyan-300/60 bg-cyan-300/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.14em] text-cyan-100 transition hover:border-cyan-100/80 hover:text-white"
               >
                 <span className="text-sm leading-none">+</span>
@@ -204,7 +261,7 @@ export default function DashboardPage() {
           ) : null}
 
           {!loading && !errorMessage && audios.length > 0 ? (
-            <div className="mt-6 space-y-4">
+            <div className="mt-6 space-y-4 overflow-y-auto max-h-[600px] pr-2">
               {audios.map((audio) => {
                 const hasMos = typeof audio.mos === "number";
                 const normalizedScore = hasMos ? Math.max(0, Math.min(5, audio.mos)) : 0;
@@ -245,13 +302,37 @@ export default function DashboardPage() {
                         </>
                       ) : null}
 
-                      <button
-                        type="button"
-                        onClick={() => void handleDownload(audio.file_path, audio.name)}
-                        className="inline-flex rounded-full border border-cyan-300/60 bg-cyan-300/12 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:border-cyan-100/80 hover:text-white"
-                      >
-                        Download
-                      </button>
+                      <div className="flex items-center gap-4">
+                        {/* Download icon button */}
+                        <button
+                          type="button"
+                          onClick={() => void handleDownload(audio.file_path, audio.name)}
+                          title="Download"
+                          className="flex h-12 w-12 items-center justify-center rounded-full border border-cyan-300/60 bg-cyan-300/10 text-cyan-100 transition hover:border-cyan-100/80 hover:text-white"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
+                        </button>
+
+                        {/* Delete icon button */}
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(audio.id)}
+                          title="Delete"
+                          className="flex h-12 w-12 items-center justify-center rounded-full border border-red-400/60 bg-red-600/20 text-red-300 transition hover:bg-red-600/80 hover:text-white"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </article>
                 );

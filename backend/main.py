@@ -1,9 +1,9 @@
 from pathlib import Path
 from uuid import uuid4
 import os
-import mimetypes
 import ssl
 import io
+import json
 import tempfile
 import urllib.error
 import urllib.request
@@ -79,11 +79,12 @@ def is_jwt_token(token: str) -> bool:
     return token.count(".") == 2 and token.startswith("ey")
 
 
-def upload_file_to_supabase_storage(
-    file_bytes: bytes,
-    object_path: str,
-    content_type: str,
-) -> str:
+def make_supabase_request(
+    url: str,
+    method: str,
+    body: bytes | None = None,
+    content_type: str = "application/json",
+) -> bytes:
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise HTTPException(
             status_code=500,
@@ -102,37 +103,60 @@ def upload_file_to_supabase_storage(
             ),
         )
 
+    req = urllib.request.Request(url, data=body, method=method)
+    req.add_header("apikey", SUPABASE_SERVICE_ROLE_KEY)
+    if is_jwt_token(SUPABASE_SERVICE_ROLE_KEY):
+        req.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_ROLE_KEY}")
+    if content_type:
+        req.add_header("Content-Type", content_type)
+
+    ssl_context = ssl.create_default_context(cafile=CA_BUNDLE_PATH)
+
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=ssl_context) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="ignore")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Supabase request failed with HTTP {exc.code}: {error_body or exc.reason}",
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Supabase request failed: {exc.reason}",
+        ) from exc
+
+
+def upload_file_to_supabase_storage(
+    file_bytes: bytes,
+    object_path: str,
+    content_type: str,
+) -> str:
     upload_url = (
         f"{SUPABASE_URL}/storage/v1/object/"
         f"{quote(SUPABASE_AUDIO_BUCKET, safe='')}/"
         f"{quote(object_path, safe='/')}"
     )
 
-    request = urllib.request.Request(
-        upload_url,
-        data=file_bytes,
-        method="POST",
-    )
-    request.add_header("apikey", SUPABASE_SERVICE_ROLE_KEY)
+    req = urllib.request.Request(upload_url, data=file_bytes, method="POST")
+    req.add_header("apikey", SUPABASE_SERVICE_ROLE_KEY)
     if is_jwt_token(SUPABASE_SERVICE_ROLE_KEY):
-        request.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_ROLE_KEY}")
-    request.add_header("content-type", content_type)
-    request.add_header("cache-control", "3600")
-    request.add_header("x-upsert", "true")
+        req.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_ROLE_KEY}")
+    req.add_header("content-type", content_type)
+    req.add_header("cache-control", "3600")
+    req.add_header("x-upsert", "true")
 
     ssl_context = ssl.create_default_context(cafile=CA_BUNDLE_PATH)
 
     try:
-        with urllib.request.urlopen(request, timeout=90, context=ssl_context) as response:
+        with urllib.request.urlopen(req, timeout=90, context=ssl_context) as response:
             response.read()
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="ignore")
         raise HTTPException(
             status_code=502,
-            detail=(
-                f"Supabase upload failed with HTTP {exc.code}: "
-                f"{error_body or exc.reason}"
-            ),
+            detail=f"Supabase upload failed with HTTP {exc.code}: {error_body or exc.reason}",
         ) from exc
     except urllib.error.URLError as exc:
         raise HTTPException(
@@ -228,11 +252,9 @@ def decode_audio(file_bytes: bytes, filename: str | None) -> tuple[torch.Tensor,
     if waveform.ndim != 2 or waveform.shape[-1] == 0:
         raise HTTPException(status_code=400, detail="Uploaded audio is empty or invalid.")
 
-    # Mix down to mono
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
 
-    # Resample to 16kHz
     if sample_rate != TARGET_SAMPLE_RATE:
         waveform = torchaudio.functional.resample(waveform, sample_rate, TARGET_SAMPLE_RATE)
 
@@ -246,7 +268,6 @@ def encode_audio_to_wav(waveform: torch.Tensor) -> bytes:
     which cannot infer format from a BytesIO buffer.
     """
     if waveform.ndim == 3:
-        # (batch, channels, frames) → (channels, frames)
         waveform = waveform.squeeze(0)
 
     tmp_path = None
@@ -282,10 +303,7 @@ async def watermark_audio(
     if not original_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # Decode and resample → (1, frames)
     waveform, sample_rate = decode_audio(original_bytes, file.filename)
-
-    # Generator expects (batch, channels, frames)
     waveform_batched = waveform.unsqueeze(0)  # (1, 1, frames)
 
     generator = get_audioseal_generator()
@@ -293,8 +311,7 @@ async def watermark_audio(
     try:
         with torch.inference_mode():
             watermarked = generator(waveform_batched, sample_rate=sample_rate)
-            # (1, 1, frames) → (1, frames)
-            watermarked = watermarked.squeeze(0)
+            watermarked = watermarked.squeeze(0)  # (1, frames)
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -329,10 +346,7 @@ async def detect_audio(file: UploadFile = File(...)) -> dict[str, object]:
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # Decode and resample → (1, frames)
     waveform, sample_rate = decode_audio(file_bytes, file.filename)
-
-    # Detector expects (batch, channels, frames)
     waveform_batched = waveform.unsqueeze(0)  # (1, 1, frames)
 
     detector = get_audioseal_detector()
@@ -357,47 +371,43 @@ async def detect_audio(file: UploadFile = File(...)) -> dict[str, object]:
         "message": "Detection completed.",
     }
 
+
 @app.delete("/delete/{id}")
-async def delete_audio(id: int) -> dict[str, str]:
-    ssl_context = ssl.create_default_context(cafile=CA_BUNDLE_PATH)
-
-    def make_request(url: str, method: str, body: bytes | None = None) -> bytes:
-        req = urllib.request.Request(url, data=body, method=method)
-        req.add_header("apikey", SUPABASE_SERVICE_ROLE_KEY)
-        if is_jwt_token(SUPABASE_SERVICE_ROLE_KEY):
-            req.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_ROLE_KEY}")
-        req.add_header("Content-Type", "application/json")
-        try:
-            with urllib.request.urlopen(req, timeout=30, context=ssl_context) as resp:
-                return resp.read()
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="ignore")
-            raise HTTPException(status_code=502, detail=f"Supabase request failed with HTTP {exc.code}: {error_body or exc.reason}") from exc
-        except urllib.error.URLError as exc:
-            raise HTTPException(status_code=502, detail=f"Supabase request failed: {exc.reason}") from exc
-
+async def delete_audio(id: int) -> dict[str, object]:
     # 1. Fetch the row to get file_path
     row_url = f"{SUPABASE_URL}/rest/v1/Audios?id=eq.{id}&select=file_path"
-    row_data = make_request(row_url, "GET")
+    row_data = make_supabase_request(row_url, "GET")
 
-    import json
     rows = json.loads(row_data)
     if not rows:
         raise HTTPException(status_code=404, detail=f"Audio with id {id} not found.")
 
     file_path = rows[0].get("file_path")
 
-    # 2. Delete file from storage
+    storage_error = None
+
+    # 2. Delete file from storage using direct object path — no body, no content-type
     if file_path:
-        storage_url = (
-            f"{SUPABASE_URL}/storage/v1/object/"
-            f"{quote(SUPABASE_AUDIO_BUCKET, safe='')}/{quote(file_path, safe='/')}"
+        storage_delete_url = (
+            f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_AUDIO_BUCKET}/{file_path}"
         )
-        make_request(storage_url, "DELETE")
+        print(f"[DELETE] file_path: {repr(file_path)}")
+        print(f"[DELETE] storage_delete_url: {storage_delete_url}")
+        try:
+            make_supabase_request(storage_delete_url, "DELETE", body=None, content_type="")
+        except HTTPException as exc:
+            storage_error = exc.detail
+            print(f"[DELETE] storage error: {exc.detail}")
+            # Only re-raise if it's not a 404 (file already gone is fine)
+            if "404" not in str(exc.detail):
+                raise
 
-    # 3. Delete the row from the table
-    delete_url = f"{SUPABASE_URL}/rest/v1/Audios?id=eq.{id}"
-    make_request(delete_url, "DELETE")
+    # 3. Delete the row from the Audios table
+    delete_row_url = f"{SUPABASE_URL}/rest/v1/Audios?id=eq.{id}"
+    make_supabase_request(delete_row_url, "DELETE")
 
-    return {"message": f"Audio {id} and its file deleted successfully."}
- 
+    return {
+        "message": f"Audio {id} deleted successfully.",
+        "file_path": file_path,
+        "storage_error": storage_error,
+    }

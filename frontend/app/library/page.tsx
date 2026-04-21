@@ -47,16 +47,12 @@ export default function LibraryPage() {
 
   const filteredAudios = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) {
-      return audios;
-    }
+    if (!needle) return audios;
     return audios.filter((audio) => audio.name.toLowerCase().includes(needle));
   }, [audios, search]);
 
   const getDownloadUrl = (filePath: string) => {
-    if (!bucketName || !filePath) {
-      return "#";
-    }
+    if (!bucketName || !filePath) return "#";
     const { data } = supabase.storage.from(bucketName).getPublicUrl(filePath);
     return data.publicUrl;
   };
@@ -64,19 +60,15 @@ export default function LibraryPage() {
   const handleDownload = async (filePath: string, audioName: string) => {
     try {
       const downloadUrl = getDownloadUrl(filePath);
-      if (!downloadUrl || downloadUrl === "#") {
-        throw new Error("Unable to resolve download URL.");
-      }
+      if (!downloadUrl || downloadUrl === "#") throw new Error("Unable to resolve download URL.");
 
       const response = await fetch(downloadUrl, { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error("Download failed.");
-      }
+      if (!response.ok) throw new Error("Download failed.");
 
       const blob = await response.blob();
-      const extension = filePath.includes(".") ? filePath.split(".").pop() : "mp3";
+      const extension = filePath.includes(".") ? filePath.split(".").pop() : "wav";
       const safeName = audioName.trim().replace(/\s+/g, "_");
-      const fileName = `${safeName || "audio"}.${extension || "mp3"}`;
+      const fileName = `${safeName || "audio"}.${extension || "wav"}`;
 
       const blobUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -92,18 +84,10 @@ export default function LibraryPage() {
   };
 
   const scoreLabel = (mos: number | null) => {
-    if (typeof mos !== "number") {
-      return "Not scored";
-    }
-    if (mos >= 4.0) {
-      return "Excellent";
-    }
-    if (mos >= 3.2) {
-      return "Good";
-    }
-    if (mos >= 2.4) {
-      return "Fair";
-    }
+    if (typeof mos !== "number") return "Not scored";
+    if (mos >= 4.0) return "Excellent";
+    if (mos >= 3.2) return "Good";
+    if (mos >= 2.4) return "Fair";
     return "Needs review";
   };
 
@@ -143,7 +127,7 @@ export default function LibraryPage() {
           ) : null}
 
           {!loading && !errorMessage && filteredAudios.length > 0 ? (
-            <div className="mt-6 space-y-4">
+            <div className="mt-6 max-h-[600px] space-y-4 overflow-y-auto pr-2">
               {filteredAudios.map((audio) => {
                 const hasMos = typeof audio.mos === "number";
                 const normalizedScore = hasMos ? Math.max(0, Math.min(5, audio.mos)) : 0;
@@ -185,9 +169,14 @@ export default function LibraryPage() {
                         <button
                           type="button"
                           onClick={() => void handleDownload(audio.file_path, audio.name)}
-                          className="inline-flex rounded-full border border-cyan-300/60 bg-cyan-300/12 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:border-cyan-100/80 hover:text-white"
+                          title="Download"
+                          className="flex h-12 w-12 items-center justify-center rounded-full border border-cyan-300/60 bg-cyan-300/10 text-cyan-100 transition hover:border-cyan-100/80 hover:text-white"
                         >
-                          Download
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
                         </button>
                       </div>
                     </div>
